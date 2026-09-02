@@ -10,6 +10,14 @@ describe("parseBoardPath", () => {
     });
   });
 
+  it("reads the section slug from a section url", () => {
+    assert.deepEqual(parseBoardPath("/thejoshuajohns/grad-poses/day-one/"), {
+      username: "thejoshuajohns",
+      slug: "grad-poses",
+      section: "day-one"
+    });
+  });
+
   it("ignores pages that are not boards", () => {
     for (const pathname of [
       "/",
@@ -18,7 +26,8 @@ describe("parseBoardPath", () => {
       "/search/pins/",
       "/ideas/graduation/",
       "/thejoshuajohns/_saved/",
-      "/thejoshuajohns/grad-poses/day-one/"
+      "/thejoshuajohns/grad-poses/_tools/",
+      "/thejoshuajohns/grad-poses/day-one/extra/"
     ]) {
       assert.equal(parseBoardPath(pathname), null, pathname);
     }

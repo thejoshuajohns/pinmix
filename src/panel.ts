@@ -1,6 +1,6 @@
 import type { BoardPath } from "./board-page.ts";
 import { mixBoard, type MixProgress, type MixResult } from "./mix.ts";
-import { getBoard, type Board } from "./pinterest.ts";
+import { getTarget, type Target } from "./pinterest.ts";
 import { styles } from "./styles.ts";
 
 export interface Panel {
@@ -13,10 +13,10 @@ const shuffleIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 
 const template = `
 <style>${styles}</style>
-<button class="launcher" type="button" hidden>${shuffleIcon}shuffle this board</button>
+<button class="launcher" type="button" hidden>${shuffleIcon}<span></span></button>
 <section class="card" hidden>
   <header>
-    <h2>shuffle board</h2>
+    <h2>shuffle</h2>
     <button class="close" type="button" aria-label="close">×</button>
   </header>
   <p class="subtitle"></p>
@@ -38,6 +38,18 @@ const template = `
   <p class="error" hidden></p>
 </section>`;
 
+function describe({ board, section }: Target): string {
+  const parts = section
+    ? [board.name, section.title, `${section.pinCount} pins`]
+    : [board.name, `${board.pinCount} pins`];
+
+  if (!section && board.sectionCount > 0) {
+    parts.push(`${board.sectionCount} sections`);
+  }
+
+  return parts.join(" · ");
+}
+
 export function mountPanel(): Panel {
   const host = document.createElement("div");
   const root = host.attachShadow({ mode: "open" });
@@ -48,6 +60,7 @@ export function mountPanel(): Panel {
     root.querySelector(selector) as T;
   const el = {
     launcher: query<HTMLButtonElement>(".launcher"),
+    launcherLabel: query<HTMLElement>(".launcher span"),
     card: query<HTMLElement>(".card"),
     close: query<HTMLButtonElement>(".close"),
     subtitle: query<HTMLElement>(".subtitle"),
@@ -65,7 +78,7 @@ export function mountPanel(): Panel {
     error: query<HTMLElement>(".error")
   };
 
-  let board: Board | null = null;
+  let target: Target | null = null;
   let loadId = 0;
   let controller: AbortController | null = null;
 
@@ -78,7 +91,7 @@ export function mountPanel(): Panel {
 
   function setCardOpen(open: boolean): void {
     el.card.hidden = !open;
-    el.launcher.hidden = open || !board;
+    el.launcher.hidden = open || !target;
   }
 
   function updateProgress({ phase, done, total }: MixProgress): void {
@@ -103,16 +116,20 @@ export function mountPanel(): Panel {
     show("done");
   }
 
-  async function run(target: Board, name: string, seed: string): Promise<void> {
+  async function run(
+    current: Target,
+    name: string,
+    seed: string
+  ): Promise<void> {
     controller = new AbortController();
     const { signal } = controller;
 
     show("progress");
-    updateProgress({ phase: "loading", done: 0, total: target.pinCount });
+    updateProgress({ phase: "loading", done: 0, total: 0 });
 
     try {
       const result = await mixBoard({
-        board: target,
+        target: current,
         name,
         seed,
         signal,
@@ -140,18 +157,18 @@ export function mountPanel(): Panel {
     event.preventDefault();
     const name = el.name.value.trim();
 
-    if (!board || !name) {
+    if (!target || !name) {
       el.name.focus();
       return;
     }
 
-    void run(board, name, el.seed.value.trim());
+    void run(target, name, el.seed.value.trim());
   });
 
   return {
     setBoardPath(path) {
       loadId += 1;
-      board = null;
+      target = null;
 
       if (!controller) {
         setCardOpen(false);
@@ -163,15 +180,16 @@ export function mountPanel(): Panel {
 
       const id = loadId;
 
-      getBoard(path)
+      getTarget(path)
         .then((loaded) => {
           if (id !== loadId) {
             return;
           }
 
-          board = loaded;
-          el.subtitle.textContent = `${loaded.name} · ${loaded.pinCount} pins`;
-          el.name.value = `${loaded.name} shuffled`;
+          target = loaded;
+          el.launcherLabel.textContent = `shuffle this ${loaded.section ? "section" : "board"}`;
+          el.subtitle.textContent = describe(loaded);
+          el.name.value = `${loaded.section?.title ?? loaded.board.name} shuffled`;
 
           if (!controller) {
             show("form");

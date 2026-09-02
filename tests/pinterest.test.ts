@@ -2,30 +2,39 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   createBoard,
+  createSection,
   fetchBoardPinIds,
+  fetchSectionPinIds,
   getBoard,
-  savePin
+  getSections,
+  getTarget,
+  savePin,
+  saveSectionPins
 } from "../src/pinterest.ts";
 import {
   board,
   boardPath,
   feedItems,
-  installFakePinterest
+  installFakePinterest,
+  section,
+  sectionData,
+  type FakeRoute
 } from "./fake-pinterest.ts";
+
+const boardData = {
+  id: board.id,
+  name: board.name,
+  url: boardPath,
+  pin_count: 3,
+  section_count: 0,
+  privacy: "public"
+};
+const boardRoute: FakeRoute = () => ({ data: boardData });
+const sectionsRoute: FakeRoute = () => ({ data: [sectionData] });
 
 describe("getBoard", () => {
   it("loads the board by username and slug", async () => {
-    const requests = installFakePinterest({
-      "BoardResource/get": () => ({
-        data: {
-          id: board.id,
-          name: board.name,
-          url: boardPath,
-          pin_count: 3,
-          privacy: "public"
-        }
-      })
-    });
+    const requests = installFakePinterest({ "BoardResource/get": boardRoute });
 
     assert.deepEqual(
       await getBoard({ username: "thejoshuajohns", slug: "grad-poses" }),
@@ -45,13 +54,7 @@ describe("getBoard", () => {
   it("treats anything that is not secret as public", async () => {
     installFakePinterest({
       "BoardResource/get": () => ({
-        data: {
-          id: "1",
-          name: "x",
-          url: "/x/y/",
-          pin_count: 0,
-          privacy: "protected"
-        }
+        data: { ...boardData, privacy: "protected" }
       })
     });
 
@@ -60,17 +63,72 @@ describe("getBoard", () => {
     assert.equal(loaded.privacy, "public");
   });
 
-  it("surfaces pinterest's error message", async () => {
+  it("prefers pinterest's detailed error message", async () => {
     installFakePinterest({
       "BoardResource/get": () => ({
         status: 404,
-        error: { message: "Board not found." }
+        error: { message: "Invalid parameters.", message_detail: "no board" }
       })
     });
 
     await assert.rejects(
       getBoard({ username: "nobody", slug: "nothing" }),
-      /Board not found\./
+      /^Error: no board$/
+    );
+  });
+});
+
+describe("getSections", () => {
+  it("lists the sections of a board", async () => {
+    const requests = installFakePinterest({
+      "BoardSectionsResource/get": sectionsRoute
+    });
+
+    assert.deepEqual(await getSections(board), [section]);
+    assert.deepEqual(requests[0].options, { board_id: board.id });
+  });
+});
+
+describe("getTarget", () => {
+  it("returns just the board for a board url", async () => {
+    const requests = installFakePinterest({ "BoardResource/get": boardRoute });
+
+    assert.deepEqual(
+      await getTarget({ username: "thejoshuajohns", slug: "grad-poses" }),
+      { board, section: null }
+    );
+    assert.equal(requests.length, 1);
+  });
+
+  it("finds the section matching the url slug", async () => {
+    installFakePinterest({
+      "BoardResource/get": boardRoute,
+      "BoardSectionsResource/get": sectionsRoute
+    });
+
+    assert.deepEqual(
+      await getTarget({
+        username: "thejoshuajohns",
+        slug: "grad-poses",
+        section: "day-one"
+      }),
+      { board, section }
+    );
+  });
+
+  it("fails when the section slug is unknown", async () => {
+    installFakePinterest({
+      "BoardResource/get": boardRoute,
+      "BoardSectionsResource/get": sectionsRoute
+    });
+
+    await assert.rejects(
+      getTarget({
+        username: "thejoshuajohns",
+        slug: "grad-poses",
+        section: "nope"
+      }),
+      /no section called nope/
     );
   });
 });
@@ -99,7 +157,7 @@ describe("fetchBoardPinIds", () => {
     assert.deepEqual(counts, [2, 3]);
     assert.equal(requests.length, 2);
     assert.equal(requests[0].options.bookmarks, undefined);
-    assert.equal(requests[0].options.filter_section_pins, false);
+    assert.equal(requests[0].options.filter_section_pins, true);
     assert.deepEqual(requests[1].options.bookmarks, ["page2"]);
   });
 
@@ -113,6 +171,21 @@ describe("fetchBoardPinIds", () => {
 
     assert.deepEqual(await fetchBoardPinIds(board, () => undefined), ["1"]);
     assert.equal(requests.length, 2);
+  });
+});
+
+describe("fetchSectionPinIds", () => {
+  it("reads section pins in pages of at most 50", async () => {
+    const requests = installFakePinterest({
+      "BoardSectionPinsResource/get": () => ({ data: feedItems("1", "2") })
+    });
+
+    assert.deepEqual(await fetchSectionPinIds(section, () => undefined), [
+      "1",
+      "2"
+    ]);
+    assert.equal(requests[0].options.section_id, section.id);
+    assert.equal(requests[0].options.page_size, 50);
   });
 });
 
@@ -138,6 +211,36 @@ describe("createBoard", () => {
       privacy: "secret",
       description: ""
     });
+  });
+});
+
+describe("createSection", () => {
+  it("creates a titled section on the board", async () => {
+    const requests = installFakePinterest({
+      "BoardSectionResource/create": () => ({ data: { id: "sec" } })
+    });
+
+    assert.equal(await createSection("new", "day one"), "sec");
+    assert.deepEqual(requests[0].options, {
+      board_id: "new",
+      name: "day one"
+    });
+  });
+});
+
+describe("saveSectionPins", () => {
+  it("saves a whole list into a section through the v3 proxy", async () => {
+    const requests = installFakePinterest({
+      "ApiResource/create": () => ({ data: { id: "sec", pin_count: 2 } })
+    });
+
+    await saveSectionPins(["1", "2"], "sec");
+
+    assert.deepEqual(requests[0].options, {
+      url: "/v3/board/sections/sec/",
+      data: { pins: ["1", "2"] }
+    });
+    assert.equal(requests[0].headers["x-csrftoken"], "token123");
   });
 });
 
