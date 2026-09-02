@@ -40,9 +40,9 @@ button {
   transition: background 0.15s;
 }
 
-button:disabled {
-  cursor: default;
-  opacity: 0.6;
+:is(button, input, a):focus-visible {
+  outline: 3px solid #0074e8;
+  outline-offset: 2px;
 }
 
 .launcher {
@@ -64,7 +64,7 @@ button:disabled {
 }
 
 .card {
-  width: 320px;
+  width: min(340px, calc(100vw - 48px));
   padding: 20px;
   border-radius: 20px;
   background: #fff;
@@ -73,18 +73,35 @@ button:disabled {
 
 .card header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 4px;
+  gap: 12px;
+}
+
+.card header > div {
+  min-width: 0;
+}
+
+.eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #767676;
 }
 
 .card h2 {
-  margin: 0;
+  margin: 2px 0 0;
+  overflow: hidden;
   font-size: 18px;
   font-weight: 700;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .close {
+  flex: none;
   padding: 4px 8px;
   background: transparent;
   font-size: 20px;
@@ -96,11 +113,13 @@ button:disabled {
 }
 
 .subtitle {
-  margin: 0 0 16px;
+  margin: 4px 0 16px;
   color: #767676;
 }
 
-.form {
+.form,
+.progress,
+.done {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -115,18 +134,27 @@ label {
 
 .switch {
   flex-direction: row;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
 }
 
 .switch input {
+  flex: none;
   width: 18px;
   height: 18px;
-  margin: 0;
+  margin: 2px 0 0;
   accent-color: #e60023;
 }
 
+.switch small {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  color: #767676;
+}
+
 input {
+  width: 100%;
   padding: 10px 14px;
   border: 2px solid #ddd;
   border-radius: 14px;
@@ -139,13 +167,17 @@ input:focus {
   border-color: #e60023;
 }
 
+input[aria-invalid="true"] {
+  border-color: #cc0000;
+}
+
 .primary {
   margin-top: 4px;
   background: #e60023;
   color: #fff;
 }
 
-.primary:hover:not(:disabled) {
+.primary:hover {
   background: #ad081b;
 }
 
@@ -155,13 +187,6 @@ input:focus {
 
 .secondary:hover {
   background: #e2e2e2;
-}
-
-.progress,
-.done {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
 .bar {
@@ -195,11 +220,17 @@ input:focus {
 }
 
 .error {
-  margin: 12px 0 0;
   color: #cc0000;
 }
 
 p {
   margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button,
+  .fill {
+    transition: none;
+  }
 }
 `;
