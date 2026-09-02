@@ -9,7 +9,8 @@ everything the chrome web store and edge add-ons forms ask for, ready to paste. 
 - `screenshot-3-before-after.png` 1280x800, the original board next to its shuffled copy
 - `promo-small.png` 440x280, small promo tile
 - `promo-marquee.png` 1400x560, marquee promo tile
-- the 128px icon comes from the zip itself
+- `icon-128.png` 128x128, the store icon with the 16px transparent padding the store asks for
+- the screenshots and tiles are flat 24 bit pngs with no alpha, which the store requires
 
 ## name
 
