@@ -13,10 +13,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    name: Build and Test
+  check:
+    name: Check
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -31,17 +31,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright
-        run: npx playwright install chromium
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format
+        run: npm run format
+
+      - name: Test
+        run: npm test
 
       - name: Build
         run: npm run build
-
-      - name: Unit tests
-        run: npm test
-
-      - name: Contract tests
-        run: npm run test:contracts
-
-      - name: Smoke tests
-        run: npm run test:smoke
