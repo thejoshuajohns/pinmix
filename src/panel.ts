@@ -1,5 +1,5 @@
 import type { BoardPath } from "./board-page.ts";
-import { mixBoard, type MixProgress, type MixResult } from "./mix.ts";
+import { mix, type MixProgress, type MixResult } from "./mix.ts";
 import { getTarget, type Target } from "./pinterest.ts";
 import { styles } from "./styles.ts";
 
@@ -21,8 +21,9 @@ const template = `
   </header>
   <p class="subtitle"></p>
   <form class="form">
-    <label>new board name <input name="name" required autocomplete="off" /></label>
+    <label><span class="name-label"></span><input name="name" required autocomplete="off" /></label>
     <label>seed (optional) <input name="seed" placeholder="same seed, same order" autocomplete="off" /></label>
+    <label class="switch" hidden><input name="keepSections" type="checkbox" checked /> keep sections</label>
     <button class="primary" type="submit">shuffle</button>
   </form>
   <div class="progress" hidden>
@@ -32,7 +33,7 @@ const template = `
   </div>
   <div class="done" hidden>
     <p class="summary"></p>
-    <a class="open" target="_blank" rel="noopener">open new board</a>
+    <a class="open" target="_blank" rel="noopener"></a>
     <button class="secondary again" type="button">shuffle again</button>
   </div>
   <p class="error" hidden></p>
@@ -65,7 +66,10 @@ export function mountPanel(): Panel {
     close: query<HTMLButtonElement>(".close"),
     subtitle: query<HTMLElement>(".subtitle"),
     form: query<HTMLFormElement>(".form"),
+    nameLabel: query<HTMLElement>(".name-label"),
     name: query<HTMLInputElement>("[name=name]"),
+    keepSections: query<HTMLInputElement>("[name=keepSections]"),
+    keepSectionsField: query<HTMLElement>(".switch"),
     seed: query<HTMLInputElement>("[name=seed]"),
     progress: query<HTMLElement>(".progress"),
     status: query<HTMLElement>(".status"),
@@ -103,7 +107,7 @@ export function mountPanel(): Panel {
   }
 
   function showResult(
-    { board: created, saved, total }: MixResult,
+    { url, saved, total }: MixResult,
     stopped: boolean
   ): void {
     const missed = total - saved;
@@ -112,7 +116,7 @@ export function mountPanel(): Panel {
       : missed
         ? `saved ${saved} of ${total} pins, ${missed} didn't save`
         : `saved all ${total} pins`;
-    el.open.href = new URL(created.url, location.origin).href;
+    el.open.href = new URL(url, location.origin).href;
     show("done");
   }
 
@@ -128,10 +132,11 @@ export function mountPanel(): Panel {
     updateProgress({ phase: "loading", done: 0, total: 0 });
 
     try {
-      const result = await mixBoard({
+      const result = await mix({
         target: current,
         name,
         seed,
+        keepSections: el.keepSections.checked,
         signal,
         onProgress: updateProgress
       });
@@ -186,10 +191,16 @@ export function mountPanel(): Panel {
             return;
           }
 
+          const kind = loaded.section ? "section" : "board";
+
           target = loaded;
-          el.launcherLabel.textContent = `shuffle this ${loaded.section ? "section" : "board"}`;
+          el.launcherLabel.textContent = `shuffle this ${kind}`;
           el.subtitle.textContent = describe(loaded);
+          el.nameLabel.textContent = `new ${kind} name`;
           el.name.value = `${loaded.section?.title ?? loaded.board.name} shuffled`;
+          el.keepSectionsField.hidden =
+            !!loaded.section || loaded.board.sectionCount === 0;
+          el.open.textContent = `open new ${kind}`;
 
           if (!controller) {
             show("form");

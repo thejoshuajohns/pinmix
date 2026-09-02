@@ -1,8 +1,14 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mixBoard, type MixInput, type MixProgress } from "../src/mix.ts";
+import {
+  mix,
+  type MixInput,
+  type MixProgress,
+  type MixResult
+} from "../src/mix.ts";
 import {
   board,
+  boardPath,
   feedItems,
   installFakePinterest,
   section,
@@ -14,7 +20,9 @@ import {
 const created = { id: "new", url: "/thejoshuajohns/grad-poses-shuffled/" };
 const pinIds = Array.from({ length: 6 }, (_, index) => String(index + 1));
 const sectionPinIds = Array.from({ length: 60 }, (_, index) => `s${index}`);
-const saveOk: FakeRoute = () => ({ data: { id: "saved" } });
+const saveOk: FakeRoute = (options) => ({
+  data: { id: `copy-${options.pin_id}` }
+});
 
 const routes = (save: FakeRoute): Record<string, FakeRoute> => ({
   "BoardFeedResource/get": () => ({
@@ -24,7 +32,9 @@ const routes = (save: FakeRoute): Record<string, FakeRoute> => ({
   "BoardSectionsResource/get": () => ({ data: [] }),
   "BoardSectionPinsResource/get": () => ({ data: feedItems(...sectionPinIds) }),
   "BoardResource/create": () => ({ data: created }),
-  "BoardSectionResource/create": () => ({ data: { id: "sec" } }),
+  "BoardSectionResource/create": () => ({
+    data: { id: "sec", slug: "shuffled" }
+  }),
   "ApiResource/create": () => ({ data: { id: "sec" } }),
   "RepinResource/create": save
 });
@@ -32,17 +42,22 @@ const routes = (save: FakeRoute): Record<string, FakeRoute> => ({
 const savesIn = (requests: FakeRequest[]) =>
   requests.filter((request) => request.resource === "RepinResource");
 
-async function runMix(input: Partial<MixInput> = {}): Promise<{
-  result: Awaited<ReturnType<typeof mixBoard>>;
-  progress: MixProgress[];
-}> {
+const batchesIn = (requests: FakeRequest[]) =>
+  requests
+    .filter((request) => request.resource === "ApiResource")
+    .map((request) => request.options.data as { pins: string[] });
+
+async function runMix(
+  input: Partial<MixInput> = {}
+): Promise<{ result: MixResult; progress: MixProgress[] }> {
   mock.timers.enable({ apis: ["setTimeout"] });
 
   const progress: MixProgress[] = [];
-  const pending = mixBoard({
+  const pending = mix({
     target: { board, section: null },
     name: "grad poses shuffled",
     seed: "",
+    keepSections: true,
     signal: new AbortController().signal,
     onProgress: (update) => progress.push(update),
     ...input
@@ -61,14 +76,14 @@ async function runMix(input: Partial<MixInput> = {}): Promise<{
   return { result: await pending, progress };
 }
 
-describe("mixBoard", () => {
+describe("mix on a board", () => {
   it("saves every pin into a fresh board in a seeded order", async () => {
     const requests = installFakePinterest(routes(saveOk));
     const { result, progress } = await runMix({ seed: "cozy" });
     const saves = savesIn(requests);
     const savedOrder = saves.map((request) => request.options.pin_id);
 
-    assert.deepEqual(result, { board: created, saved: 6, total: 6 });
+    assert.deepEqual(result, { url: created.url, saved: 6, total: 6 });
     assert.deepEqual([...savedOrder].sort(), pinIds);
     assert.notDeepEqual(savedOrder, pinIds);
     assert.ok(saves.every((request) => request.options.board_id === "new"));
@@ -85,23 +100,19 @@ describe("mixBoard", () => {
     );
   });
 
-  it("recreates sections and saves their shuffled pins in batches", async () => {
+  it("recreates sections and adds their shuffled pins in batches", async () => {
     const requests = installFakePinterest({
       ...routes(saveOk),
       "BoardSectionsResource/get": () => ({ data: [sectionData] })
     });
     const { result, progress } = await runMix({ seed: "cozy" });
-    const batches = requests
-      .filter((request) => request.resource === "ApiResource")
-      .map((request) => request.options);
-    const batchedIds = batches.flatMap(
-      (options) => (options.data as { pins: string[] }).pins
-    );
+    const batches = batchesIn(requests);
+    const batchedIds = batches.flatMap((batch) => batch.pins);
     const createSection = requests.find(
       (request) => request.resource === "BoardSectionResource"
     );
 
-    assert.deepEqual(result, { board: created, saved: 66, total: 66 });
+    assert.deepEqual(result, { url: created.url, saved: 66, total: 66 });
     assert.deepEqual(createSection?.options, {
       board_id: "new",
       name: section.title
@@ -110,13 +121,8 @@ describe("mixBoard", () => {
       [...savesIn(requests).map((request) => request.options.pin_id)].sort(),
       pinIds
     );
-    assert.ok(
-      batches.every((options) => options.url === "/v3/board/sections/sec/")
-    );
     assert.deepEqual(
-      batches.map(
-        (options) => (options.data as { pins: string[] }).pins.length
-      ),
+      batches.map((batch) => batch.pins.length),
       [50, 10]
     );
     assert.deepEqual([...batchedIds].sort(), [...sectionPinIds].sort());
@@ -124,14 +130,19 @@ describe("mixBoard", () => {
     assert.deepEqual(progress[1], { phase: "loading", done: 66, total: 3 });
   });
 
-  it("shuffles a single section into a plain board", async () => {
-    const requests = installFakePinterest(routes(saveOk));
-    const { result, progress } = await runMix({
-      target: { board, section }
+  it("mixes section pins into the board when sections are not kept", async () => {
+    const requests = installFakePinterest({
+      ...routes(saveOk),
+      "BoardSectionsResource/get": () => ({ data: [sectionData] })
     });
+    const { result } = await runMix({ keepSections: false });
+    const savedIds = savesIn(requests).map((request) => request.options.pin_id);
 
-    assert.deepEqual(result, { board: created, saved: 60, total: 60 });
-    assert.equal(savesIn(requests).length, 60);
+    assert.deepEqual(result, { url: created.url, saved: 66, total: 66 });
+    assert.deepEqual(
+      [...savedIds].sort(),
+      [...pinIds, ...sectionPinIds].sort()
+    );
     assert.ok(
       requests.every(
         (request) =>
@@ -139,7 +150,6 @@ describe("mixBoard", () => {
           request.resource !== "ApiResource"
       )
     );
-    assert.deepEqual(progress[0], { phase: "loading", done: 60, total: 2 });
   });
 
   it("retries a failed save and counts the ones that never make it", async () => {
@@ -153,12 +163,12 @@ describe("mixBoard", () => {
           return { status: 429 };
         }
 
-        return pinId === "5" ? { status: 500 } : { data: { id: "saved" } };
+        return pinId === "5" ? { status: 500 } : saveOk(options);
       })
     );
     const { result } = await runMix();
 
-    assert.deepEqual(result, { board: created, saved: 5, total: 6 });
+    assert.deepEqual(result, { url: created.url, saved: 5, total: 6 });
     assert.equal(attempts["2"], 3);
     assert.equal(attempts["5"], 3);
     assert.equal(savesIn(requests).length, 6 + 2 + 2);
@@ -176,7 +186,7 @@ describe("mixBoard", () => {
       }
     });
 
-    assert.deepEqual(result, { board: created, saved: 2, total: 6 });
+    assert.deepEqual(result, { url: created.url, saved: 2, total: 6 });
     assert.equal(savesIn(requests).length, 2);
   });
 
@@ -187,5 +197,63 @@ describe("mixBoard", () => {
     });
 
     await assert.rejects(runMix(), /no pins/);
+  });
+});
+
+describe("mix on a section", () => {
+  it("copies the pins into a new section on the same board", async () => {
+    const requests = installFakePinterest(routes(saveOk));
+    const { result, progress } = await runMix({
+      target: { board, section },
+      name: "day one shuffled"
+    });
+    const saves = savesIn(requests);
+    const savedIds = saves.map((request) => request.options.pin_id);
+    const batches = batchesIn(requests);
+
+    assert.deepEqual(result, {
+      url: `${boardPath}shuffled/`,
+      saved: 60,
+      total: 60
+    });
+    assert.ok(saves.every((request) => request.options.board_id === board.id));
+    assert.deepEqual([...savedIds].sort(), [...sectionPinIds].sort());
+    assert.notDeepEqual(savedIds, sectionPinIds);
+    assert.deepEqual(
+      batches.flatMap((batch) => batch.pins),
+      savedIds.map((pinId) => `copy-${pinId}`)
+    );
+    assert.deepEqual(
+      batches.map((batch) => batch.pins.length),
+      [50, 10]
+    );
+    assert.ok(
+      requests.every((request) => request.resource !== "BoardResource")
+    );
+    assert.deepEqual(progress[0], { phase: "loading", done: 60, total: 2 });
+  });
+
+  it("still files the copies made before a stop", async () => {
+    const controller = new AbortController();
+    const requests = installFakePinterest(routes(saveOk));
+    const { result } = await runMix({
+      target: { board, section },
+      signal: controller.signal,
+      onProgress: ({ phase, done }) => {
+        if (phase === "saving" && done === 3) {
+          controller.abort();
+        }
+      }
+    });
+
+    assert.deepEqual(result, {
+      url: `${boardPath}shuffled/`,
+      saved: 3,
+      total: 60
+    });
+    assert.deepEqual(
+      batchesIn(requests).map((batch) => batch.pins.length),
+      [3]
+    );
   });
 });

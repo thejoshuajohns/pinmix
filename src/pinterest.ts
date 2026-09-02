@@ -28,6 +28,11 @@ export interface CreatedBoard {
   url: string;
 }
 
+export interface CreatedSection {
+  id: string;
+  url: string;
+}
+
 interface ResourceResponse<T> {
   resource_response?: {
     data?: T;
@@ -179,34 +184,36 @@ export async function createBoard(
 }
 
 export async function createSection(
-  boardId: string,
+  board: Board | CreatedBoard,
   title: string,
   signal?: AbortSignal
-): Promise<string> {
+): Promise<CreatedSection> {
   const { data } = await callResource<SectionData>(
     "BoardSectionResource",
     "create",
-    { board_id: boardId, name: title },
+    { board_id: board.id, name: title },
     signal
   );
 
-  return data.id;
+  return { id: data.id, url: `${board.url}${data.slug}/` };
 }
 
 export async function savePin(
   pinId: string,
   boardId: string,
   signal?: AbortSignal
-): Promise<void> {
-  await callResource(
+): Promise<string> {
+  const { data } = await callResource<FeedItem>(
     "RepinResource",
     "create",
     { board_id: boardId, pin_id: pinId, is_buyable_pin: false },
     signal
   );
+
+  return data.id;
 }
 
-export async function saveSectionPins(
+export async function addSectionPins(
   pinIds: string[],
   sectionId: string,
   signal?: AbortSignal
