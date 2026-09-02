@@ -1,40 +1,22 @@
-const tsParser = require("@typescript-eslint/parser");
-const tsPlugin = require("@typescript-eslint/eslint-plugin");
+import tsParser from "@typescript-eslint/parser";
+import tsPlugin from "@typescript-eslint/eslint-plugin";
 
-module.exports = [
+export default [
   {
-    ignores: [
-      "**/dist/**",
-      "release/**",
-      "node_modules/**",
-      ".pinshuffle/**",
-      "playwright-report/**",
-      "test-results/**",
-      "eslint.config.js"
-    ]
+    ignores: ["dist/**", "node_modules/**"]
   },
   {
-    files: ["**/*.ts", "**/*.js"],
+    files: ["**/*.ts", "**/*.mjs"],
     languageOptions: {
       parser: tsParser,
       ecmaVersion: "latest",
-      sourceType: "module",
-      globals: {
-        process: "readonly",
-        __dirname: "readonly",
-        module: "readonly",
-        require: "readonly",
-        console: "readonly",
-        window: "readonly",
-        document: "readonly"
-      }
+      sourceType: "module"
     },
     plugins: {
       "@typescript-eslint": tsPlugin
     },
     rules: {
       ...tsPlugin.configs.recommended.rules,
-      "@typescript-eslint/no-require-imports": "off",
       "@typescript-eslint/no-unused-vars": [
         "error",
         {

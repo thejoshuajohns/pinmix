@@ -1,15 +1,17 @@
 {
-  "files": [],
-  "references": [
-    { "path": "./packages/core" },
-    { "path": "./packages/storage" },
-    { "path": "./packages/storage-sqlite" },
-    { "path": "./packages/shuffle" },
-    { "path": "./packages/reorder" },
-    { "path": "./packages/scraper-sdk" },
-    { "path": "./packages/scraper-pinterest" },
-    { "path": "./packages/pipeline" },
-    { "path": "./apps/cli" },
-    { "path": "./apps/desktop" }
-  ]
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "rewriteRelativeImportExtensions": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src", "tests"]
 }
