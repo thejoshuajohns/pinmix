@@ -1,6 +1,7 @@
 export interface BoardPath {
   username: string;
   slug: string;
+  section?: string;
 }
 
 const reservedUsernames = new Set([
@@ -29,15 +30,16 @@ const reservedUsernames = new Set([
 
 export function parseBoardPath(pathname: string): BoardPath | null {
   const segments = pathname.split("/").filter(Boolean);
-  const [username, slug] = segments;
+  const [username, slug, section] = segments;
 
   if (
-    segments.length !== 2 ||
+    segments.length < 2 ||
+    segments.length > 3 ||
     reservedUsernames.has(username) ||
-    slug.startsWith("_")
+    segments.slice(1).some((segment) => segment.startsWith("_"))
   ) {
     return null;
   }
 
-  return { username, slug };
+  return section ? { username, slug, section } : { username, slug };
 }

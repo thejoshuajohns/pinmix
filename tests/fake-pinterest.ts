@@ -1,4 +1,4 @@
-import type { Board } from "../src/pinterest.ts";
+import type { Board, Section } from "../src/pinterest.ts";
 
 export interface FakeRequest {
   resource: string;
@@ -11,7 +11,7 @@ export interface FakeReply {
   status?: number;
   data?: unknown;
   bookmark?: string;
-  error?: { message: string };
+  error?: { message: string; message_detail?: string };
 }
 
 export type FakeRoute = (options: Record<string, unknown>) => FakeReply;
@@ -23,7 +23,22 @@ export const board: Board = {
   name: "grad poses",
   url: boardPath,
   pinCount: 3,
+  sectionCount: 0,
   privacy: "public"
+};
+
+export const section: Section = {
+  id: "3666117655218986880",
+  title: "day one",
+  slug: "day-one",
+  pinCount: 2
+};
+
+export const sectionData = {
+  id: section.id,
+  title: section.title,
+  slug: section.slug,
+  pin_count: section.pinCount
 };
 
 export function feedItems(...ids: string[]): { id: string; type: string }[] {
