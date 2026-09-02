@@ -6,6 +6,7 @@ everything the chrome web store and edge add-ons forms ask for, ready to paste. 
 
 - `screenshot-1-shuffle.png` 1280x800, the panel on a board
 - `screenshot-2-done.png` 1280x800, the finished state
+- `screenshot-3-before-after.png` 1280x800, the original board next to its shuffled copy
 - `promo-small.png` 440x280, small promo tile
 - `promo-marquee.png` 1400x560, marquee promo tile
 - the 128px icon comes from the zip itself
