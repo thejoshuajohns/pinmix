@@ -13,7 +13,7 @@ import {
 import { randomFor, shuffle } from "./shuffle.ts";
 
 export interface MixProgress {
-  phase: "loading" | "saving";
+  phase: "creating" | "loading" | "saving";
   done: number;
   total: number;
 }
@@ -60,15 +60,27 @@ async function mixBoard(
   { name, seed, keepSections, signal, onProgress }: MixInput,
   board: Board
 ): Promise<MixResult> {
-  const groups = await loadGroups(
-    board,
-    keepSections,
-    countingTo(board.pinCount, onProgress),
+  assertHasPins(board.pinCount, "board");
+  onProgress({ phase: "creating", done: 0, total: board.pinCount });
+
+  const created = await createBoard(name, board.privacy, signal);
+  const groups = await unlessStopped(
+    () =>
+      loadGroups(
+        board,
+        keepSections,
+        countingTo(board.pinCount, onProgress),
+        signal
+      ),
     signal
   );
+
+  if (!groups) {
+    return { url: created.url, saved: 0, total: 0 };
+  }
+
   const tracker = createTracker(groups, signal, onProgress);
   const random = randomFor(seed);
-  const created = await createBoard(name, board.privacy, signal);
 
   for (const group of groups) {
     if (signal.aborted) {
@@ -100,13 +112,25 @@ async function mixSection(
   board: Board,
   section: Section
 ): Promise<MixResult> {
-  const pinIds = await fetchSectionPinIds(
-    section,
-    countingTo(section.pinCount, onProgress),
+  assertHasPins(section.pinCount, "section");
+  onProgress({ phase: "creating", done: 0, total: section.pinCount });
+
+  const created = await createSection(board, name, signal);
+  const pinIds = await unlessStopped(
+    () =>
+      fetchSectionPinIds(
+        section,
+        countingTo(section.pinCount, onProgress),
+        signal
+      ),
     signal
   );
+
+  if (!pinIds) {
+    return { url: created.url, saved: 0, total: 0 };
+  }
+
   const tracker = createTracker([{ title: null, pinIds }], signal, onProgress);
-  const created = await createSection(board, name, signal);
   const copies: string[] = [];
 
   for (const pinId of shuffle(pinIds, randomFor(seed))) {
@@ -153,6 +177,27 @@ async function loadGroups(
   return groups;
 }
 
+function assertHasPins(pinCount: number, kind: "board" | "section"): void {
+  if (pinCount === 0) {
+    throw new Error(`this ${kind} has no pins to shuffle`);
+  }
+}
+
+async function unlessStopped<T>(
+  load: () => Promise<T>,
+  signal: AbortSignal
+): Promise<T | null> {
+  try {
+    return await load();
+  } catch (error) {
+    if (signal.aborted) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
 function countingTo(
   expected: number,
   onProgress: ProgressFn
@@ -169,10 +214,6 @@ function createTracker(
   const total = groups.reduce((sum, group) => sum + group.pinIds.length, 0);
   let done = 0;
   let saved = 0;
-
-  if (total === 0) {
-    throw new Error("there are no pins here to shuffle");
-  }
 
   onProgress({ phase: "saving", done, total });
 

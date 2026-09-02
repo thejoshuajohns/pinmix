@@ -8,47 +8,76 @@ export interface Panel {
 }
 
 type View = "form" | "progress" | "done";
+type Kind = "board" | "section";
 
 const shuffleIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h3.5l7 10H21"/><path d="M3 17h3.5l7-10H21"/><path d="m18 4 3 3-3 3"/><path d="m18 14 3 3-3 3"/></svg>`;
 
 const template = `
 <style>${styles}</style>
 <button class="launcher" type="button" hidden>${shuffleIcon}<span></span></button>
-<section class="card" hidden>
+<section class="card" role="dialog" aria-labelledby="pinmix-title" hidden>
   <header>
-    <h2>shuffle</h2>
+    <div>
+      <p class="eyebrow"></p>
+      <h2 id="pinmix-title"></h2>
+    </div>
     <button class="close" type="button" aria-label="close">×</button>
   </header>
   <p class="subtitle"></p>
   <form class="form">
     <label><span class="name-label"></span><input name="name" required autocomplete="off" /></label>
     <label>seed (optional) <input name="seed" placeholder="same seed, same order" autocomplete="off" /></label>
-    <label class="switch" hidden><input name="keepSections" type="checkbox" checked /> keep sections</label>
+    <label class="switch" hidden>
+      <input name="keepSections" type="checkbox" checked />
+      <span>keep sections <small>off mixes every pin together</small></span>
+    </label>
     <button class="primary" type="submit">shuffle</button>
+    <p class="error" role="alert" hidden></p>
   </form>
   <div class="progress" hidden>
-    <p class="status"></p>
+    <p class="status" aria-live="polite"></p>
     <div class="bar"><div class="fill"></div></div>
     <button class="secondary cancel" type="button">stop</button>
   </div>
   <div class="done" hidden>
-    <p class="summary"></p>
+    <p class="summary" aria-live="polite"></p>
     <a class="open" target="_blank" rel="noopener"></a>
     <button class="secondary again" type="button">shuffle again</button>
   </div>
-  <p class="error" hidden></p>
 </section>`;
+
+function kindOf({ section }: Target): Kind {
+  return section ? "section" : "board";
+}
 
 function describe({ board, section }: Target): string {
   const parts = section
-    ? [board.name, section.title, `${section.pinCount} pins`]
-    : [board.name, `${board.pinCount} pins`];
+    ? [`section of ${board.name}`, `${section.pinCount} pins`]
+    : ["board", `${board.pinCount} pins`];
 
   if (!section && board.sectionCount > 0) {
     parts.push(`${board.sectionCount} sections`);
   }
 
   return parts.join(" · ");
+}
+
+function summarize({ saved, total }: MixResult, stopped: boolean): string {
+  if (stopped) {
+    return saved
+      ? `stopped after saving ${saved} of ${total} pins`
+      : "stopped before any pins were saved";
+  }
+
+  if (total === 0) {
+    return "no pins could be loaded, so nothing was saved";
+  }
+
+  const missed = total - saved;
+
+  return missed
+    ? `saved ${saved} of ${total} pins, ${missed} didn't save`
+    : `saved all ${total} pins`;
 }
 
 export function mountPanel(): Panel {
@@ -63,14 +92,17 @@ export function mountPanel(): Panel {
     launcher: query<HTMLButtonElement>(".launcher"),
     launcherLabel: query<HTMLElement>(".launcher span"),
     card: query<HTMLElement>(".card"),
+    eyebrow: query<HTMLElement>(".eyebrow"),
+    title: query<HTMLElement>("#pinmix-title"),
     close: query<HTMLButtonElement>(".close"),
     subtitle: query<HTMLElement>(".subtitle"),
     form: query<HTMLFormElement>(".form"),
     nameLabel: query<HTMLElement>(".name-label"),
     name: query<HTMLInputElement>("[name=name]"),
+    seed: query<HTMLInputElement>("[name=seed]"),
     keepSections: query<HTMLInputElement>("[name=keepSections]"),
     keepSectionsField: query<HTMLElement>(".switch"),
-    seed: query<HTMLInputElement>("[name=seed]"),
+    error: query<HTMLElement>(".error"),
     progress: query<HTMLElement>(".progress"),
     status: query<HTMLElement>(".status"),
     fill: query<HTMLElement>(".fill"),
@@ -78,12 +110,11 @@ export function mountPanel(): Panel {
     done: query<HTMLElement>(".done"),
     summary: query<HTMLElement>(".summary"),
     open: query<HTMLAnchorElement>(".open"),
-    again: query<HTMLButtonElement>(".again"),
-    error: query<HTMLElement>(".error")
+    again: query<HTMLButtonElement>(".again")
   };
 
   let target: Target | null = null;
-  let loadId = 0;
+  let loading: AbortController | null = null;
   let controller: AbortController | null = null;
 
   function show(view: View): void {
@@ -96,28 +127,38 @@ export function mountPanel(): Panel {
   function setCardOpen(open: boolean): void {
     el.card.hidden = !open;
     el.launcher.hidden = open || !target;
+
+    if (open && !el.form.hidden) {
+      el.name.focus();
+      el.name.select();
+    }
   }
 
-  function updateProgress({ phase, done, total }: MixProgress): void {
+  function showError(message: string): void {
+    el.error.textContent = message;
+    el.error.hidden = false;
+    el.name.setAttribute("aria-invalid", "true");
+    el.name.focus();
+  }
+
+  function updateProgress(
+    { phase, done, total }: MixProgress,
+    kind: Kind
+  ): void {
     el.status.textContent =
-      phase === "loading"
-        ? `loading pins · ${done}`
-        : `saving ${done} of ${total}`;
+      phase === "creating"
+        ? `creating the new ${kind}`
+        : phase === "loading"
+          ? `loading pins · ${done}`
+          : `saving ${done} of ${total}`;
     el.fill.style.width = `${total ? Math.min(100, (done / total) * 100) : 0}%`;
   }
 
-  function showResult(
-    { url, saved, total }: MixResult,
-    stopped: boolean
-  ): void {
-    const missed = total - saved;
-    el.summary.textContent = stopped
-      ? `stopped after saving ${saved} of ${total} pins`
-      : missed
-        ? `saved ${saved} of ${total} pins, ${missed} didn't save`
-        : `saved all ${total} pins`;
-    el.open.href = new URL(url, location.origin).href;
+  function showResult(result: MixResult, stopped: boolean): void {
+    el.summary.textContent = summarize(result, stopped);
+    el.open.href = new URL(result.url, location.origin).href;
     show("done");
+    el.open.focus();
   }
 
   async function run(
@@ -127,9 +168,9 @@ export function mountPanel(): Panel {
   ): Promise<void> {
     controller = new AbortController();
     const { signal } = controller;
+    const kind = kindOf(current);
 
     show("progress");
-    updateProgress({ phase: "loading", done: 0, total: 0 });
 
     try {
       const result = await mix({
@@ -138,16 +179,14 @@ export function mountPanel(): Panel {
         seed,
         keepSections: el.keepSections.checked,
         signal,
-        onProgress: updateProgress
+        onProgress: (progress) => updateProgress(progress, kind)
       });
       showResult(result, signal.aborted);
     } catch (error) {
       show("form");
 
       if (!signal.aborted) {
-        el.error.textContent =
-          error instanceof Error ? error.message : String(error);
-        el.error.hidden = false;
+        showError(error instanceof Error ? error.message : String(error));
       }
     } finally {
       controller = null;
@@ -157,13 +196,25 @@ export function mountPanel(): Panel {
   el.launcher.addEventListener("click", () => setCardOpen(true));
   el.close.addEventListener("click", () => setCardOpen(false));
   el.cancel.addEventListener("click", () => controller?.abort());
-  el.again.addEventListener("click", () => show("form"));
+  el.again.addEventListener("click", () => {
+    show("form");
+    el.name.focus();
+  });
+  el.name.addEventListener("input", () => {
+    el.name.removeAttribute("aria-invalid");
+    el.error.hidden = true;
+  });
+  el.card.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      setCardOpen(false);
+    }
+  });
   el.form.addEventListener("submit", (event) => {
     event.preventDefault();
     const name = el.name.value.trim();
 
     if (!target || !name) {
-      el.name.focus();
+      showError("give the new one a name first");
       return;
     }
 
@@ -172,7 +223,8 @@ export function mountPanel(): Panel {
 
   return {
     setBoardPath(path) {
-      loadId += 1;
+      loading?.abort();
+      loading = null;
       target = null;
 
       if (!controller) {
@@ -183,21 +235,19 @@ export function mountPanel(): Panel {
         return;
       }
 
-      const id = loadId;
-
-      getTarget(path)
+      loading = new AbortController();
+      getTarget(path, loading.signal)
         .then((loaded) => {
-          if (id !== loadId) {
-            return;
-          }
-
-          const kind = loaded.section ? "section" : "board";
+          const kind = kindOf(loaded);
+          const label = loaded.section?.title ?? loaded.board.name;
 
           target = loaded;
           el.launcherLabel.textContent = `shuffle this ${kind}`;
+          el.eyebrow.textContent = `shuffle ${kind}`;
+          el.title.textContent = label;
           el.subtitle.textContent = describe(loaded);
           el.nameLabel.textContent = `new ${kind} name`;
-          el.name.value = `${loaded.section?.title ?? loaded.board.name} shuffled`;
+          el.name.value = `${label} shuffled`;
           el.keepSectionsField.hidden =
             !!loaded.section || loaded.board.sectionCount === 0;
           el.open.textContent = `open new ${kind}`;

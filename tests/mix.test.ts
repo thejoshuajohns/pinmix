@@ -87,7 +87,10 @@ describe("mix on a board", () => {
     assert.deepEqual([...savedOrder].sort(), pinIds);
     assert.notDeepEqual(savedOrder, pinIds);
     assert.ok(saves.every((request) => request.options.board_id === "new"));
-    assert.deepEqual(progress[0], { phase: "loading", done: 6, total: 3 });
+    assert.equal(requests[0].resource, "BoardResource");
+    assert.equal(requests[0].action, "create");
+    assert.deepEqual(progress[0], { phase: "creating", done: 0, total: 3 });
+    assert.deepEqual(progress[1], { phase: "loading", done: 6, total: 3 });
     assert.deepEqual(progress.at(-1), { phase: "saving", done: 6, total: 6 });
 
     const again = installFakePinterest(routes(saveOk));
@@ -127,7 +130,7 @@ describe("mix on a board", () => {
     );
     assert.deepEqual([...batchedIds].sort(), [...sectionPinIds].sort());
     assert.notDeepEqual(batchedIds, sectionPinIds);
-    assert.deepEqual(progress[1], { phase: "loading", done: 66, total: 3 });
+    assert.deepEqual(progress[2], { phase: "loading", done: 66, total: 3 });
   });
 
   it("mixes section pins into the board when sections are not kept", async () => {
@@ -190,13 +193,29 @@ describe("mix on a board", () => {
     assert.equal(savesIn(requests).length, 2);
   });
 
-  it("refuses to shuffle an empty board", async () => {
-    installFakePinterest({
-      "BoardFeedResource/get": () => ({ data: [], bookmark: "-end-" }),
-      "BoardSectionsResource/get": () => ({ data: [] })
-    });
+  it("refuses an empty board before touching pinterest", async () => {
+    const requests = installFakePinterest(routes(saveOk));
 
-    await assert.rejects(runMix(), /no pins/);
+    await assert.rejects(
+      runMix({ target: { board: { ...board, pinCount: 0 }, section: null } }),
+      /this board has no pins/
+    );
+    assert.equal(requests.length, 0);
+  });
+
+  it("gives back the new board when stopped while loading", async () => {
+    const controller = new AbortController();
+    const requests = installFakePinterest({
+      ...routes(saveOk),
+      "BoardFeedResource/get": () => {
+        controller.abort();
+        return { data: feedItems(...pinIds), bookmark: "-end-" };
+      }
+    });
+    const { result } = await runMix({ signal: controller.signal });
+
+    assert.deepEqual(result, { url: created.url, saved: 0, total: 0 });
+    assert.equal(savesIn(requests).length, 0);
   });
 });
 
@@ -230,7 +249,8 @@ describe("mix on a section", () => {
     assert.ok(
       requests.every((request) => request.resource !== "BoardResource")
     );
-    assert.deepEqual(progress[0], { phase: "loading", done: 60, total: 2 });
+    assert.deepEqual(progress[0], { phase: "creating", done: 0, total: 2 });
+    assert.deepEqual(progress[1], { phase: "loading", done: 60, total: 2 });
   });
 
   it("still files the copies made before a stop", async () => {

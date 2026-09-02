@@ -6,12 +6,13 @@ pinmix is a tiny browser extension. open a board on pinterest, hit the shuffle b
 
 ## how it works
 
-the extension runs on pinterest.com itself so it uses the session you are already signed in with. no separate login, no desktop app, no browser automation
+the extension runs on pinterest.com itself so it uses the session you are already signed in with. no separate login, no desktop app, no browser automation, no servers of its own
 
 1. it reads the board or section you are looking at
-2. it loads every pin, section by section
-3. it shuffles them, with an optional seed if you want the same order again later
-4. it creates a new board with the same privacy as the original and saves the pins into it. with keep sections on, every section is recreated and shuffled on its own. with it off, the sections are dissolved and every pin is mixed together on the board
+2. it creates the new board or section first, so a name that is already taken fails straight away
+3. it loads every pin, section by section
+4. it shuffles them, with an optional seed if you want the same order again later
+5. it saves the pins into place. with keep sections on, every section is recreated and shuffled on its own. with it off, the sections are dissolved and every pin is mixed together on the board
 
 open a section instead of a board and the button turns into shuffle this section. that adds a new shuffled copy of the section to the same board, right next to the original
 
@@ -19,10 +20,10 @@ open a section instead of a board and the button turns into shuffle this section
 
 pinmix is not on the chrome web store yet, so load it as an unpacked extension
 
-1. grab `pinmix-<version>.zip` from the latest release, or run `npm run build` and use the `dist` folder
+1. grab `pinmix-<version>.zip` from the [latest release](https://github.com/thejoshuajohns/pinmix/releases/latest) and unzip it, or run `npm run build` and use the `dist` folder
 2. open `chrome://extensions` (or `edge://extensions`)
 3. turn on developer mode
-4. click load unpacked and pick the unzipped folder
+4. click load unpacked and pick the folder
 
 ## use
 
@@ -32,7 +33,11 @@ pinmix is not on the chrome web store yet, so load it as an unpacked extension
 4. hit shuffle and watch the progress bar
 5. open the new board or section when it finishes
 
-you can stop a shuffle part way through. the pins saved so far stay on the new board
+you can stop a shuffle part way through. the pins saved so far stay where they are
+
+## privacy
+
+pinmix only runs on pinterest pages, only talks to pinterest with your own signed in session, and sends nothing anywhere else. there is no tracking, no analytics, and no account of its own. the full policy is in [PRIVACY.md](PRIVACY.md)
 
 ## develop
 
@@ -44,7 +49,7 @@ npm run build
 npm test
 ```
 
-`npm run build` writes the extension to `dist`. `npm test` runs the unit tests with node's built in test runner. `npm run typecheck`, `npm run lint`, and `npm run format` are what ci runs
+`npm run build` writes the extension to `dist`. `npm test` runs the unit tests with node's built in test runner. `npm run typecheck`, `npm run lint`, and `npm run format` are what ci runs. pushing a `v*` tag builds the zip and attaches it to a github release
 
 ## layout
 
@@ -52,10 +57,10 @@ npm test
 src/
   content.ts     loads the extension as a module on pinterest pages
   main.ts        watches the url and shows the panel on board pages
-  board-page.ts  turns a pinterest url into a username and board slug
+  board-page.ts  turns a pinterest url into a username, board slug, and section slug
   pinterest.ts   the handful of pinterest resource calls pinmix needs
   shuffle.ts     fisher yates shuffle with an optional seed
-  mix.ts         load pins per section, shuffle, create the board or section, save with retries
+  mix.ts         create the board or section, load pins, shuffle, save with retries
   panel.ts       the in page panel
   styles.ts      panel styles
 static/          manifest and icons copied into dist

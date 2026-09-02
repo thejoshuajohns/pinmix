@@ -55,7 +55,7 @@ interface SectionData {
   id: string;
   title: string;
   slug: string;
-  pin_count: number;
+  pin_count: number | null;
 }
 
 interface FeedItem {
@@ -126,7 +126,7 @@ export async function getSections(
     id: section.id,
     title: section.title,
     slug: section.slug,
-    pinCount: section.pin_count
+    pinCount: section.pin_count ?? 0
   }));
 }
 
