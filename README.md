@@ -2,7 +2,7 @@
 
 shuffle any pinterest board into a new board in one click
 
-pinmix is a tiny browser extension. open a board on pinterest, hit the shuffle button in the corner, and every pin gets saved to a brand new board in a random order. sections come along too, each one shuffled on its own. your original board stays exactly as it was
+pinmix is a tiny browser extension. open a board on pinterest, hit the shuffle button in the corner, and every pin gets saved to a brand new board in a random order. sections come along too, each one shuffled on its own, or you can mix everything together. your original board stays exactly as it was
 
 ## how it works
 
@@ -11,9 +11,9 @@ the extension runs on pinterest.com itself so it uses the session you are alread
 1. it reads the board or section you are looking at
 2. it loads every pin, section by section
 3. it shuffles them, with an optional seed if you want the same order again later
-4. it creates a new board with the same privacy as the original, recreates the sections, and saves the pins into place one by one
+4. it creates a new board with the same privacy as the original and saves the pins into it. with keep sections on, every section is recreated and shuffled on its own. with it off, the sections are dissolved and every pin is mixed together on the board
 
-open a section instead of a board and the button turns into shuffle this section. that copies just the pins from that section into a new board
+open a section instead of a board and the button turns into shuffle this section. that adds a new shuffled copy of the section to the same board, right next to the original
 
 ## install
 
@@ -28,9 +28,9 @@ pinmix is not on the chrome web store yet, so load it as an unpacked extension
 
 1. open any board or section on pinterest
 2. click the red shuffle button in the bottom right corner
-3. change the new board name if you want, add a seed if you want a repeatable order
+3. change the name if you want, add a seed if you want a repeatable order, and pick whether sections stay
 4. hit shuffle and watch the progress bar
-5. open the new board when it finishes
+5. open the new board or section when it finishes
 
 you can stop a shuffle part way through. the pins saved so far stay on the new board
 
@@ -55,7 +55,7 @@ src/
   board-page.ts  turns a pinterest url into a username and board slug
   pinterest.ts   the handful of pinterest resource calls pinmix needs
   shuffle.ts     fisher yates shuffle with an optional seed
-  mix.ts         load pins per section, shuffle, create the board, save with retries
+  mix.ts         load pins per section, shuffle, create the board or section, save with retries
   panel.ts       the in page panel
   styles.ts      panel styles
 static/          manifest and icons copied into dist

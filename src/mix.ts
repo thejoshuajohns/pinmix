@@ -1,12 +1,13 @@
 import {
+  addSectionPins,
   createBoard,
   createSection,
   fetchBoardPinIds,
   fetchSectionPinIds,
   getSections,
   savePin,
-  saveSectionPins,
-  type CreatedBoard,
+  type Board,
+  type Section,
   type Target
 } from "./pinterest.ts";
 import { randomFor, shuffle } from "./shuffle.ts";
@@ -18,7 +19,7 @@ export interface MixProgress {
 }
 
 export interface MixResult {
-  board: CreatedBoard;
+  url: string;
   saved: number;
   total: number;
 }
@@ -27,6 +28,7 @@ export interface MixInput {
   target: Target;
   name: string;
   seed: string;
+  keepSections: boolean;
   signal: AbortSignal;
   onProgress: (progress: MixProgress) => void;
 }
@@ -36,109 +38,169 @@ interface PinGroup {
   pinIds: string[];
 }
 
+interface Tracker {
+  run<T>(count: number, work: () => Promise<T>): Promise<T | null>;
+  result(url: string): MixResult;
+}
+
+type ProgressFn = MixInput["onProgress"];
+
 const saveDelayMs = 150;
 const retryDelayMs = 1000;
 const maxAttempts = 3;
 const sectionBatchSize = 50;
 
-export async function mixBoard(input: MixInput): Promise<MixResult> {
-  const { target, signal, onProgress } = input;
-  const expected = (target.section ?? target.board).pinCount;
+export function mix(input: MixInput): Promise<MixResult> {
+  const { board, section } = input.target;
+
+  return section ? mixSection(input, board, section) : mixBoard(input, board);
+}
+
+async function mixBoard(
+  { name, seed, keepSections, signal, onProgress }: MixInput,
+  board: Board
+): Promise<MixResult> {
   const groups = await loadGroups(
-    target,
-    (count) => onProgress({ phase: "loading", done: count, total: expected }),
+    board,
+    keepSections,
+    countingTo(board.pinCount, onProgress),
     signal
   );
-  const total = groups.reduce((sum, group) => sum + group.pinIds.length, 0);
-
-  if (total === 0) {
-    throw new Error("there are no pins here to shuffle");
-  }
-
-  const random = randomFor(input.seed);
-  const created = await createBoard(input.name, target.board.privacy, signal);
-  let done = 0;
-  let saved = 0;
-
-  onProgress({ phase: "saving", done, total });
+  const tracker = createTracker(groups, signal, onProgress);
+  const random = randomFor(seed);
+  const created = await createBoard(name, board.privacy, signal);
 
   for (const group of groups) {
     if (signal.aborted) {
       break;
     }
 
-    if (group.pinIds.length === 0) {
-      continue;
+    const pinIds = shuffle(group.pinIds, random);
+
+    if (group.title === null) {
+      for (const pinId of pinIds) {
+        await tracker.run(1, () => savePin(pinId, created.id, signal));
+      }
+    } else if (pinIds.length > 0) {
+      const section = await createSection(created, group.title, signal);
+
+      for (const batch of chunk(pinIds, sectionBatchSize)) {
+        await tracker.run(batch.length, () =>
+          addSectionPins(batch, section.id, signal)
+        );
+      }
+    }
+  }
+
+  return tracker.result(created.url);
+}
+
+async function mixSection(
+  { name, seed, signal, onProgress }: MixInput,
+  board: Board,
+  section: Section
+): Promise<MixResult> {
+  const pinIds = await fetchSectionPinIds(
+    section,
+    countingTo(section.pinCount, onProgress),
+    signal
+  );
+  const tracker = createTracker([{ title: null, pinIds }], signal, onProgress);
+  const created = await createSection(board, name, signal);
+  const copies: string[] = [];
+
+  for (const pinId of shuffle(pinIds, randomFor(seed))) {
+    const copy = await tracker.run(1, () => savePin(pinId, board.id, signal));
+
+    if (copy) {
+      copies.push(copy);
+    }
+  }
+
+  for (const batch of chunk(copies, sectionBatchSize)) {
+    await addSectionPins(batch, created.id);
+  }
+
+  return tracker.result(created.url);
+}
+
+async function loadGroups(
+  board: Board,
+  keepSections: boolean,
+  onCount: (count: number) => void,
+  signal: AbortSignal
+): Promise<PinGroup[]> {
+  const root: PinGroup = { title: null, pinIds: [] };
+  const groups = [root];
+  let loaded = 0;
+  const countFrom = (count: number) => onCount(loaded + count);
+
+  root.pinIds = await fetchBoardPinIds(board, countFrom, signal);
+  loaded = root.pinIds.length;
+
+  for (const section of await getSections(board, signal)) {
+    const pinIds = await fetchSectionPinIds(section, countFrom, signal);
+
+    if (keepSections) {
+      groups.push({ title: section.title, pinIds });
+    } else {
+      root.pinIds.push(...pinIds);
     }
 
-    const pinIds = shuffle(group.pinIds, random);
-    const sectionId =
-      group.title === null
-        ? null
-        : await createSection(created.id, group.title, signal);
-    const batches = sectionId
-      ? chunk(pinIds, sectionBatchSize)
-      : pinIds.map((pinId) => [pinId]);
+    loaded += pinIds.length;
+  }
 
-    for (const batch of batches) {
+  return groups;
+}
+
+function countingTo(
+  expected: number,
+  onProgress: ProgressFn
+): (count: number) => void {
+  return (count) =>
+    onProgress({ phase: "loading", done: count, total: expected });
+}
+
+function createTracker(
+  groups: PinGroup[],
+  signal: AbortSignal,
+  onProgress: ProgressFn
+): Tracker {
+  const total = groups.reduce((sum, group) => sum + group.pinIds.length, 0);
+  let done = 0;
+  let saved = 0;
+
+  if (total === 0) {
+    throw new Error("there are no pins here to shuffle");
+  }
+
+  onProgress({ phase: "saving", done, total });
+
+  return {
+    async run(count, work) {
       if (signal.aborted) {
-        break;
+        return null;
       }
 
       if (done > 0) {
         await sleep(saveDelayMs, signal);
       }
 
-      const ok = await withRetry(
-        () =>
-          sectionId
-            ? saveSectionPins(batch, sectionId, signal)
-            : savePin(batch[0], created.id, signal),
-        signal
-      );
+      const outcome = await withRetry(work, signal);
 
-      if (ok) {
-        saved += batch.length;
+      if (outcome !== null) {
+        saved += count;
       }
 
-      done += batch.length;
+      done += count;
       onProgress({ phase: "saving", done, total });
+
+      return outcome;
+    },
+    result(url) {
+      return { url, saved, total };
     }
-  }
-
-  return { board: created, saved, total };
-}
-
-async function loadGroups(
-  { board, section }: Target,
-  onCount: (count: number) => void,
-  signal: AbortSignal
-): Promise<PinGroup[]> {
-  if (section) {
-    return [
-      {
-        title: null,
-        pinIds: await fetchSectionPinIds(section, onCount, signal)
-      }
-    ];
-  }
-
-  const groups: PinGroup[] = [];
-  let loaded = 0;
-  const countFrom = (count: number) => onCount(loaded + count);
-  const rootPinIds = await fetchBoardPinIds(board, countFrom, signal);
-
-  groups.push({ title: null, pinIds: rootPinIds });
-  loaded += rootPinIds.length;
-
-  for (const boardSection of await getSections(board, signal)) {
-    const pinIds = await fetchSectionPinIds(boardSection, countFrom, signal);
-
-    groups.push({ title: boardSection.title, pinIds });
-    loaded += pinIds.length;
-  }
-
-  return groups;
+  };
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -151,20 +213,19 @@ function chunk<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
-async function withRetry(
-  attempt: () => Promise<void>,
+async function withRetry<T>(
+  work: () => Promise<T>,
   signal: AbortSignal
-): Promise<boolean> {
-  for (let attempts = 1; ; attempts += 1) {
+): Promise<T | null> {
+  for (let attempt = 1; ; attempt += 1) {
     try {
-      await attempt();
-      return true;
+      return await work();
     } catch {
-      if (signal.aborted || attempts === maxAttempts) {
-        return false;
+      if (signal.aborted || attempt === maxAttempts) {
+        return null;
       }
 
-      await sleep(retryDelayMs * attempts, signal);
+      await sleep(retryDelayMs * attempt, signal);
     }
   }
 }

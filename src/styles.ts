@@ -113,6 +113,19 @@ label {
   font-weight: 600;
 }
 
+.switch {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.switch input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #e60023;
+}
+
 input {
   padding: 10px 14px;
   border: 2px solid #ddd;

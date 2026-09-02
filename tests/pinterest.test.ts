@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  addSectionPins,
   createBoard,
   createSection,
   fetchBoardPinIds,
@@ -8,8 +9,7 @@ import {
   getBoard,
   getSections,
   getTarget,
-  savePin,
-  saveSectionPins
+  savePin
 } from "../src/pinterest.ts";
 import {
   board,
@@ -215,26 +215,31 @@ describe("createBoard", () => {
 });
 
 describe("createSection", () => {
-  it("creates a titled section on the board", async () => {
+  it("creates a titled section and builds its url", async () => {
     const requests = installFakePinterest({
-      "BoardSectionResource/create": () => ({ data: { id: "sec" } })
+      "BoardSectionResource/create": () => ({
+        data: { id: "sec", slug: "day-one-shuffled" }
+      })
     });
 
-    assert.equal(await createSection("new", "day one"), "sec");
+    assert.deepEqual(await createSection(board, "day one shuffled"), {
+      id: "sec",
+      url: `${boardPath}day-one-shuffled/`
+    });
     assert.deepEqual(requests[0].options, {
-      board_id: "new",
-      name: "day one"
+      board_id: board.id,
+      name: "day one shuffled"
     });
   });
 });
 
-describe("saveSectionPins", () => {
-  it("saves a whole list into a section through the v3 proxy", async () => {
+describe("addSectionPins", () => {
+  it("adds a whole list to a section through the v3 proxy", async () => {
     const requests = installFakePinterest({
       "ApiResource/create": () => ({ data: { id: "sec", pin_count: 2 } })
     });
 
-    await saveSectionPins(["1", "2"], "sec");
+    await addSectionPins(["1", "2"], "sec");
 
     assert.deepEqual(requests[0].options, {
       url: "/v3/board/sections/sec/",
@@ -245,13 +250,12 @@ describe("saveSectionPins", () => {
 });
 
 describe("savePin", () => {
-  it("repins into the target board", async () => {
+  it("repins into the target board and returns the copy's id", async () => {
     const requests = installFakePinterest({
       "RepinResource/create": () => ({ data: { id: "saved" } })
     });
 
-    await savePin("1", "new");
-
+    assert.equal(await savePin("1", "new"), "saved");
     assert.deepEqual(requests[0].options, {
       board_id: "new",
       pin_id: "1",
