@@ -18,7 +18,9 @@ open a section instead of a board and the button turns into shuffle this section
 
 ## install
 
-pinmix is not on the chrome web store yet, so load it as an unpacked extension
+pinmix is on the [chrome web store](https://chromewebstore.google.com/detail/pinmix/cbodhnnocahjfnkehfgpoikjdjadeejd). add it there and you are done
+
+you can also load it unpacked if you would rather build it yourself
 
 1. grab `pinmix-<version>.zip` from the [latest release](https://github.com/thejoshuajohns/pinmix/releases/latest) and unzip it, or run `npm run build` and use the `dist` folder
 2. open `chrome://extensions` (or `edge://extensions`)
